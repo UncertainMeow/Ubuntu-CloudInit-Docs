@@ -5,7 +5,7 @@ This is a short guide for setting up a Ubuntu VM template in Proxmox using Cloud
 For this guide I have made a few assumptions:
 
 * You want your VMs to boot via UEFI as opposed to BIOS
-* Your Proxmox node's main storage is called `local-zfs`
+* Your Proxmox node's main storage is called `local-lvm`
 * You want to use Ubuntu 24.04
 * You have SSH keys stored in ~/.ssh/authorized_keys of your regular user's home folder
 
@@ -24,10 +24,10 @@ Notice that even though I'm resizing this image to be 32 gigabytes the file won'
 
 The next step is to create a basic VM that we'll build upon:
 
-    #sudo qm create 8001 --name "ubuntu-2404-cloudinit-template" --ostype l26 \
+    #qm create 8001 --name "ubuntu-2404-cloudinit-template" --ostype l26 \
         --memory 1024 \
         --agent 1 \
-        --bios ovmf --machine q35 --efidisk0 local-zfs:0,pre-enrolled-keys=0 \
+        --bios ovmf --machine q35 --efidisk0 local-lvm:0,pre-enrolled-keys=0 \
         --cpu host --socket 1 --cores 1 \
         --vga serial0 --serial0 socket  \
         --net0 virtio,bridge=vmbr0
@@ -36,16 +36,16 @@ Feel free to change the 8001 to whatever you like, so long as you replace the 80
 
 ## Configuring hardware
 
-    sudo qm importdisk 8001 noble-server-cloudimg-amd64.img local-zfs
-    sudo qm set 8001 --scsihw virtio-scsi-pci --virtio0 local-zfs:vm-8001-disk-1,discard=on
-    sudo qm set 8001 --boot order=virtio0
-    sudo qm set 8001 --scsi1 local-zfs:cloudinit
+    qm importdisk 8001 noble-server-cloudimg-amd64.img local-lvm
+    qm set 8001 --scsihw virtio-scsi-pci --virtio0 local-lvm:vm-8001-disk-1,discard=on
+    qm set 8001 --boot order=virtio0
+    qm set 8001 --scsi1 local-lvm:cloudinit
 
-The first command imports that image we downloaded earlier, if your disk storage is not local-zfs (for example local-lvm) then replace it with whatever you wish. Next command attaches the disk to the VM. If your disk storage is not on SSDs (which it should be) omit `,discard=on`. The third command sets the boot order. Fourth adds the cloudinit pseudo-cdrom drive.
+The first command imports that image we downloaded earlier, if your disk storage is not local-lvm (for example local-lvm) then replace it with whatever you wish. Next command attaches the disk to the VM. If your disk storage is not on SSDs (which it should be) omit `,discard=on`. The third command sets the boot order. Fourth adds the cloudinit pseudo-cdrom drive.
 
 ## Creating the vendor.yaml file for cloudinit
     mkdir /var/lib/vz/snippets
-    cat << EOF | sudo tee /var/lib/vz/snippets/vendor.yaml
+    cat << EOF | tee /var/lib/vz/snippets/vendor.yaml
     #cloud-config
     runcmd:
         - apt update
@@ -59,18 +59,18 @@ This file performs two purposes, the first rather obvious (installing qemu-guest
 
 ## Configuring CloudInit
 
-    sudo qm set 8001 --cicustom "vendor=local:snippets/vendor.yaml"
-    sudo qm set 8001 --tags ubuntu-template,24.04,cloudinit
-    sudo qm set 8001 --ciuser untouchedwagons
-    sudo qm set 8001 --cipassword $(openssl passwd -6 $CLEARTEXT_PASSWORD)
-    sudo qm set 8001 --sshkeys ~/.ssh/authorized_keys
-    sudo qm set 8001 --ipconfig0 ip=dhcp
+    qm set 8001 --cicustom "vendor=local:snippets/vendor.yaml"
+    qm set 8001 --tags ubuntu-template,24.04,cloudinit
+    qm set 8001 --ciuser untouchedwagons
+    qm set 8001 --cipassword $(openssl passwd -6 $CLEARTEXT_PASSWORD)
+    qm set 8001 --sshkeys ~/.ssh/authorized_keys
+    qm set 8001 --ipconfig0 ip=dhcp
 
 The first command tells CI to use the vendor file we specified earler. The second can be skipped but adds decorative tags that show up in the Proxmox Web-UI. Cloned VMs inherit all these tags. The third specifies the user to create. The fourth sets the password. The fifth imports SSH public keys so you can SSH in. Finally the virtio NIC is set to DHCP, this is *supposed* to be the default but manual specifying is necessary.
 
 ## Finally: Converting to template
 
-    sudo qm template 8001
+    qm template 8001
 
 That's it! Your template is now ready to use. Clone this template as you wish (remember to adjust cores and RAM as needed) and start up the clone. After first boot Cloud-Init will kick in, create your user, install qemu-guest-agent and reboot. Once the reboot is complete you can SSH and use the VM however you like!
 
